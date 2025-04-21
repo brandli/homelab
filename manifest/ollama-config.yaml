@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ollama-model-script
+  namespace: ollama
+data:
+  ollama-model-script.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Function to safely pull models with retries
+    pull_model() {
+      local model=$1
+      local max_attempts=3
+      local attempt=1
+      
+      while [ $attempt -le $max_attempts ]; do
+        echo "Pulling $model (attempt $attempt/$max_attempts)..."
+        if ollama pull $model; then
+          echo "Successfully pulled $model"
+          return 0
+        else
+          echo "Failed to pull $model (attempt $attempt/$max_attempts)"
+          sleep 10
+          attempt=$((attempt+1))
+        fi
+      done
+      
+      echo "WARNING: Failed to pull $model after $max_attempts attempts"
+      return 1
+    }
+    
+    # Pull models - continue even if some fail
+    pull_model llama3:latest
+    pull_model mistral:latest
+    pull_model deepseek-coder:latest
+    pull_model deepseek-r1:14b
+    
+    echo "Model pull script completed"
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: ollama
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        name: ollama
+      annotations:
+        kubectl.kubernetes.io/default-container: ollama
+    spec:
+      # These init containers run before your main container and wait for dependencies
+      initContainers:
+      - name: wait-for-gpu
+        image: nvidia/cuda:12.4.0-base-ubuntu22.04
+        command: ['sh', '-c', 'nvidia-smi && echo "GPU is ready" || (echo "Waiting for GPU to be ready..." && sleep 60 && exit 1)']
+        resources:
+          requests:
+            nvidia.com/gpu: 1
+          limits:
+            nvidia.com/gpu: 1
+        securityContext:
+          privileged: true
+      - name: wait-for-storage
+        image: busybox
+        command: ['sh', '-c', 'echo "Checking volume mount points..." && ls -la /tmp && sleep 5']
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - name: http
+          containerPort: 11434
+          protocol: TCP
+        resources:
+          requests:
+            nvidia.com/gpu: 1
+          limits:
+            nvidia.com/gpu: 1
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "/script/ollama-model-script.sh"]
+        volumeMounts:
+          - name: ollama-model-script
+            mountPath: "/script"
+          - name: ollama-models
+            mountPath: "/root/.ollama"
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+      - name: ollama-model-script
+        configMap:
+          defaultMode: 0700
+          name: ollama-model-script
+      - name: ollama-models
+        persistentVolumeClaim:
+          claimName: ollama-models-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ollama
+spec:
+  type: NodePort
+  selector:
+    name: ollama
+  ports:
+  - nodePort: 30303
+    port: 11434
+    protocol: TCP
+    targetPort: 11434
+    

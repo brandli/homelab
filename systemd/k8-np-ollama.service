@@ -1,0 +1,13 @@
+[Unit]
+Description="Kubernetes NodePort Forwarding Ollama [30303:11434] "
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=60
+SyslogIdentifier=k8-np-ollama
+
+ExecStart=/usr/bin/socat -d -d tcp-listen:11434,reuseaddr,fork tcp:localhost:30303
+
+[Install]
+WantedBy=multi-user.target

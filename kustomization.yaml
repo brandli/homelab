@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  annotations:
+    kustomize.updateStrategy: "ExistingResource"
+
+resources:
+  - manifest/sc-nfs.yaml #comment this out in case you don't want to use a NAS some other NFS server for persistent storage
+  - manifest/test-config.yaml
+  - manifest/cloudflare-secret.yaml
+  - manifest/cloudflare-config.yaml
+  - manifest/guacamole-secret.yaml
+  - manifest/guacamole-config.yaml
+  - manifest/ollama-config.yaml
+  - manifest/open-webui.yaml
+  - manifest/automatic1111.yaml
+  - manifest/dvc-remote-config.yaml
+  - manifest/time-slicing-config.yaml
+  - manifest/mlflow-resources.yaml
+  - manifest/comfyui-resources.yaml
+  #- manifest/flyte-resources.yaml

@@ -1,0 +1,3 @@
+manifest/sc-nfs.yaml
+manifest/cloudflare-secret.yaml
+manifest/guacamole-secret.yaml
