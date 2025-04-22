@@ -1,6 +1,3 @@
 [submodule "comfyui-onprem-k8s"]
 	path = comfyui-onprem-k8s
 	url = https://github.com/Curt-Park/comfyui-onprem-k8s.git
-[submodule "slurm-k8s-cluster"]
-	path = slurm-k8s-cluster
-	url = https://github.com/brandli/slurm-k8s-cluster.git
