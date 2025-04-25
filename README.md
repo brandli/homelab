@@ -40,7 +40,7 @@ The k8s cluster is configured such that the storage is provided with a NAS.
             echo fs.inotify.max_user_watches=1048576 | sudo tee -a /etc/sysctl.conf
             sudo sysctl --system
     ```
-2. Install kubectl: `sudo snap install kubectl --classic`
+2. Install kubectl: `sudo snap install kubectl --classic` and also install helm: `sudo snap install helm --classic`
 3. Enable community addons using: `sudo microk8s enable community`
 4. Enable addons additional addons (with the above command): dashboard, ingress, hostpath-storage
 5. Enable old Nvidia GPU addon (new one seems broken): microk8s enable gpu --version v24.3.0
