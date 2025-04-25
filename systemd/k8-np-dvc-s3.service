@@ -1,0 +1,13 @@
+[Unit]
+Description="Kubernetes NodePort Forwarding S3 / MinIO for DVC [30990:9030] "
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=60
+SyslogIdentifier=k8-np-dvc-s3
+
+ExecStart=/usr/bin/socat -d -d tcp-listen:9030,reuseaddr,fork tcp:localhost:30990
+
+[Install]
+WantedBy=multi-user.target

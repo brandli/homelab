@@ -1,0 +1,13 @@
+[Unit]
+Description="Kubernetes NodePort Forwarding MLFlow [30500:5000] "
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=60
+SyslogIdentifier=k8-np-mlflow
+
+ExecStart=/usr/bin/socat -d -d tcp-listen:5000,reuseaddr,fork tcp:localhost:30500
+
+[Install]
+WantedBy=multi-user.target
