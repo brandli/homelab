@@ -1,0 +1,567 @@
+# =============================================================================
+# Odoo Kubernetes Deployment Configuration
+# =============================================================================
+#
+# IMPORTANT: Host Directory Permissions Setup
+# -------------------------------------------
+# This configuration uses hostPath volumes which require proper ownership on the host.
+# Before deploying, ensure the following directories exist with correct permissions:
+#
+# 1. SSH to the Kubernetes node (beefy1 in this case):
+#    ssh user@192.168.0.100
+#
+# 2. Create directories and set ownership:
+#    sudo mkdir -p /data/postgres /data/odoo
+#    sudo chown 999:999 /data/postgres    # PostgreSQL runs as UID/GID 999
+#    sudo chown 101:101 /data/odoo        # Odoo runs as UID/GID 101
+#    sudo chmod 755 /data/postgres /data/odoo
+#
+# 3. Verify permissions:
+#    ls -la /data/
+#    # Should show:
+#    # drwxr-xr-x 2 999 999 4096 ... postgres/
+#    # drwxr-xr-x 2 101 101 4096 ... odoo/
+#
+# Alternative Storage Solutions:
+# -----------------------------
+# For production environments, consider using:
+# - NFS with proper UID/GID mapping
+# - Cloud storage (AWS EBS, GCP PD, Azure Disk)
+# - Ceph RBD or CephFS
+# - Local provisioner with proper node selectors
+#
+# Security Context Notes:
+# ----------------------
+# This deployment uses "restricted" pod security policy which requires:
+# - seccompProfile: RuntimeDefault for all containers
+# - runAsNonRoot: true
+# - allowPrivilegeEscalation: false
+# - capabilities.drop: ["ALL"]
+# - Resource limits for all containers (including init containers)
+#
+# Database Initialization:
+# ------------------------
+# The Odoo container includes "--init=base" parameter for first-time setup.
+# After initial deployment, you may want to remove this parameter to avoid
+# reinstalling base modules on restarts.
+#
+# Access Information:
+# ------------------
+# - Odoo Web Interface: http://<node-ip>:30069
+# - Database: PostgreSQL accessible internally at postgres-service:5432
+# - Default database name: odoo
+# - Default database user: odoo
+# =============================================================================
+
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odoo
+  labels:
+    name: odoo
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# PostgreSQL Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: odoo
+type: Opaque
+stringData:
+  postgres-password: "odoo_secure_password_2025"
+  postgres-user: "odoo"
+  postgres-db: "odoo"
+
+---
+# PostgreSQL ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: odoo
+  labels:
+    app: postgres
+data:
+  POSTGRES_DB: "odoo"
+  POSTGRES_USER: "odoo"
+  PGDATA: "/var/lib/postgresql/data/pgdata"
+  
+---
+# Odoo ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odoo-config
+  namespace: odoo
+  labels:
+    app: odoo
+data:
+  HOST: "postgres-service"
+  USER: "odoo"
+  DB_PORT: "5432"
+  odoo.conf: |
+    [options]
+    addons_path = /mnt/extra-addons
+    data_dir = /var/lib/odoo
+    xmlrpc_port = 8069
+    workers = 2
+    max_cron_threads = 1
+    limit_memory_hard = 2684354560
+    limit_memory_soft = 2147483648
+    limit_time_cpu = 600
+    limit_time_real = 1200
+    log_level = info
+
+---
+# PostgreSQL Persistent Volume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv
+  labels:
+    type: local
+spec:
+  storageClassName: nfs-csi
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/data/postgres"
+
+---
+# PostgreSQL Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: odoo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Odoo Data Persistent Volume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: odoo-data-pv
+  labels:
+    type: local
+spec:
+  storageClassName: nfs-csi
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/data/odoo"
+
+---
+# Odoo Data Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-data-pvc
+  namespace: odoo
+spec:
+  storageClassName: nfs-csi
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# PostgreSQL Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-sa
+  namespace: odoo
+automountServiceAccountToken: false
+
+---
+# Odoo Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: odoo-sa
+  namespace: odoo
+automountServiceAccountToken: false
+
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: odoo
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      serviceAccountName: postgres-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: volume-setup
+        image: postgres:15.5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        command:
+        - sh
+        - -c
+        - |
+          echo "Setting up PostgreSQL data directory..."
+          if [ ! -d "/var/lib/postgresql/data/pgdata" ]; then
+            echo "Creating pgdata directory..."
+            mkdir -p /var/lib/postgresql/data/pgdata
+          fi
+          echo "PostgreSQL directory setup complete"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      containers:
+      - name: postgres
+        image: postgres:15.5
+        securityContext:
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        - name: PGDATA
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: PGDATA
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: run-volume
+          mountPath: /var/run/postgresql
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - odoo
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - odoo
+          initialDelaySeconds: 15
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: tmp-volume
+        emptyDir: {}
+      - name: run-volume
+        emptyDir: {}
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: odoo
+  labels:
+    app: postgres
+spec:
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: postgres
+  type: ClusterIP
+
+---
+# Odoo Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+  namespace: odoo
+  labels:
+    app: odoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      serviceAccountName: odoo-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:15.5
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres-service -U odoo; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      containers:
+      - name: odoo
+        image: odoo:18.0
+        securityContext:
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - containerPort: 8069
+          name: odoo-web
+        env:
+        - name: HOST
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-config
+              key: HOST
+        - name: USER
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-config
+              key: USER
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-config
+              key: DB_PORT
+        - name: DB_NAME
+          value: "odoo"
+        args:
+        - "--workers=2"
+        - "--max-cron-threads=1"
+        - "--limit-memory-hard=2684354560"
+        - "--limit-time-cpu=600"
+        - "--limit-time-real=1200"
+        - "--log-level=info"
+        - "--database=odoo"
+        - "--init=base"
+        volumeMounts:
+        - name: odoo-data
+          mountPath: /var/lib/odoo
+        - name: extra-addons
+          mountPath: /mnt/extra-addons
+        - name: tmp-volume
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "2Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        livenessProbe:
+          httpGet:
+            path: /web/health
+            port: 8069
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /web/health
+            port: 8069
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: odoo-data
+        persistentVolumeClaim:
+          claimName: odoo-data-pvc
+      - name: extra-addons
+        emptyDir: {}
+      - name: tmp-volume
+        emptyDir: {}
+
+---
+# Odoo Service with NodePort 30069
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-service
+  namespace: odoo
+  labels:
+    app: odoo
+spec:
+  type: NodePort
+  ports:
+  - port: 8069
+    targetPort: 8069
+    nodePort: 30069
+    protocol: TCP
+    name: odoo-web
+  selector:
+    app: odoo
+
+---
+# Network Policy for Security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: odoo-network-policy
+  namespace: odoo
+spec:
+  podSelector:
+    matchLabels:
+      app: odoo
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8069
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS outbound
+    - protocol: UDP
+      port: 53   # DNS
+
+---
+# Resource Quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: odoo-quota
+  namespace: odoo
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "10"
