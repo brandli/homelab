@@ -109,7 +109,7 @@ data:
     addons_path = /mnt/extra-addons
     data_dir = /var/lib/odoo
     xmlrpc_port = 8069
-    workers = 2
+    workers = 0
     max_cron_threads = 1
     limit_memory_hard = 2684354560
     limit_memory_soft = 2147483648
@@ -182,6 +182,39 @@ spec:
   resources:
     requests:
       storage: 10Gi
+
+---
+# Odoo Extra Addons Persistent Volume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: odoo-addons-pv
+  labels:
+    type: local
+spec:
+  storageClassName: nfs-csi
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/home/christian/develop/civitask/odoo-modules"
+
+---
+# Odoo Extra Addons Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-addons-pvc
+  namespace: odoo
+spec:
+  storageClassName: nfs-csi
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gi
 
 ---
 # PostgreSQL Service Account
@@ -493,7 +526,8 @@ spec:
         persistentVolumeClaim:
           claimName: odoo-data-pvc
       - name: extra-addons
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: odoo-addons-pvc
       - name: tmp-volume
         emptyDir: {}
 
