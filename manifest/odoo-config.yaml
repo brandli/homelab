@@ -449,8 +449,11 @@ spec:
             memory: "256Mi"
       containers:
       - name: odoo
-        image: odoo:18.0
+        image: lefilament/odoo:18.0
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 101
+          runAsGroup: 101
           readOnlyRootFilesystem: false
           allowPrivilegeEscalation: false
           capabilities:
@@ -485,17 +488,12 @@ spec:
         - name: DB_NAME
           value: "odoo"
         args:
-        - "--workers=2"
-        - "--max-cron-threads=1"
-        - "--limit-memory-hard=2684354560"
-        - "--limit-time-cpu=600"
-        - "--limit-time-real=1200"
-        - "--log-level=info"
+        - "-i"
+        - "base"
         - "--database=odoo"
-        - "--init=base"
         volumeMounts:
         - name: odoo-data
-          mountPath: /var/lib/odoo
+          mountPath: /opt/odoo/data
         - name: extra-addons
           mountPath: /mnt/extra-addons
         - name: tmp-volume
