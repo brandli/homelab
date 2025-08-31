@@ -224,6 +224,7 @@ spec:
   resources:
     requests:
       storage: 2Gi
+  volumeName: odoo-addons-pv
 
 ---
 # PostgreSQL Service Account
@@ -461,7 +462,7 @@ spec:
         image: ghcr.io/brandli/ocb:multi-stage
         imagePullPolicy: Always
         command: ["/opt/odoo/docker-entrypoint.sh"]
-        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo"]
+        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf"]
         securityContext:
           runAsNonRoot: true
           runAsUser: 999
@@ -511,6 +512,8 @@ spec:
           mountPath: /opt/odoo/data
         - name: extra-addons
           mountPath: /opt/odoo/custom-addons
+        - name: odoo-config-file
+          mountPath: /etc/odoo
         - name: tmp-volume
           mountPath: /tmp
         resources:
@@ -541,6 +544,9 @@ spec:
       - name: extra-addons
         persistentVolumeClaim:
           claimName: odoo-addons-pvc
+      - name: odoo-config-file
+        configMap:
+          name: odoo-config
       - name: tmp-volume
         emptyDir: {}
 
