@@ -201,7 +201,7 @@ metadata:
   labels:
     type: local
 spec:
-  storageClassName: nfs-csi
+  storageClassName: microk8s-hostpath
   capacity:
     storage: 2Gi
   accessModes:
@@ -218,7 +218,7 @@ metadata:
   name: odoo-addons-pvc
   namespace: odoo
 spec:
-  storageClassName: nfs-csi
+  storageClassName: microk8s-hostpath
   accessModes:
     - ReadWriteMany
   resources:
@@ -461,7 +461,7 @@ spec:
         image: ghcr.io/brandli/ocb:multi-stage
         imagePullPolicy: Always
         command: ["/opt/odoo/docker-entrypoint.sh"]
-        args: []
+        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo"]
         securityContext:
           runAsNonRoot: true
           runAsUser: 999
@@ -499,6 +499,13 @@ spec:
               key: DB_PORT
         - name: ODOO_DB
           value: "odoo"
+        - name: DB_NAME
+          value: "odoo"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
         volumeMounts:
         - name: odoo-data
           mountPath: /opt/odoo/data
