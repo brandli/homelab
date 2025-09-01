@@ -11,25 +11,30 @@
 #    ssh user@192.168.0.100
 #
 # 2. Create directories and set ownership:
-#    sudo mkdir -p /data/postgres /data/odoo
-#    sudo chown 999:999 /data/postgres    # PostgreSQL runs as UID/GID 999
-#    sudo chown 999:999 /data/odoo        # Custom OCB image also uses UID/GID 999
-#    sudo chmod 755 /data/postgres /data/odoo
+#    sudo mkdir -p /data/mint-postgres /data/mint-odoo
+#    sudo chown 999:999 /data/mint-postgres    # PostgreSQL runs as UID/GID 999
+#    sudo chown 999:999 /data/mint-odoo        # Custom OCB image also uses UID/GID 999
+#    sudo chmod 755 /data/mint-postgres /data/mint-odoo
 #
 # 3. Verify permissions:
 #    ls -la /data/
 #    # Should show:
-#    # drwxr-xr-x 2 999 docker 4096 ... postgres/
-#    # drwxr-xr-x 2 999 docker 4096 ... odoo/
+#    # drwxr-xr-x 2 999 docker 4096 ... mint-postgres/
+#    # drwxr-xr-x 2 999 docker 4096 ... mint-odoo/
 #
-# Note: Custom OCB Image (ghcr.io/brandli/ocb:multi-stage)
-# -------------------------------------------------------
-# This deployment now uses a custom OCB (Odoo Community Backports) image
-# built from the /setups repository. The image includes:
-# - OCB 18.0 from OCA (Odoo Community Association)
-# - Custom startup scripts with environment variable support
-# - Proper directory structure: /opt/odoo/data, /opt/odoo/custom-addons
-# - Multi-stage build with development and production variants
+# Note: Mintsystems Odoo Image (mintsystem/odoo:18.0)
+# ---------------------------------------------------
+# This deployment uses the official Mintsystems Odoo image which includes:
+# - Odoo 18.0 Community Edition with latest updates
+# - Optimized build process with uv package manager
+# - Standard Odoo directory structure: /var/lib/odoo, /mnt/extra-addons
+# - Environment variable-based configuration
+# - Built-in health checks and non-root execution
+# - Support for git-based addon repositories
+#
+# Namespace: mint-odoo
+# ------------------
+# All resources are deployed in the 'mint-odoo' namespace for better organization
 #
 # Alternative Storage Solutions:
 # -----------------------------
@@ -56,19 +61,20 @@
 #
 # Access Information:
 # ------------------
-# - Odoo Web Interface: http://<node-ip>:30069
-# - Database: PostgreSQL accessible internally at postgres-service:5432
+# - Odoo Web Interface: http://<node-ip>:30070
+# - Database: PostgreSQL accessible internally at mint-postgres-service:5432
 # - Default database name: odoo
 # - Default database user: odoo
+# - Namespace: mint-odoo (isolated from existing odoo namespace)
 # =============================================================================
 
 # Namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: odoo
+  name: mint-odoo
   labels:
-    name: odoo
+    name: mint-odoo
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
@@ -79,7 +85,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: postgres-credentials
-  namespace: odoo
+  namespace: mint-odoo
 type: Opaque
 stringData:
   postgres-password: "odoo_secure_password_2025"
@@ -92,7 +98,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-config
-  namespace: odoo
+  namespace: mint-odoo
   labels:
     app: postgres
 data:
@@ -106,17 +112,17 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: odoo-config
-  namespace: odoo
+  namespace: mint-odoo
   labels:
     app: odoo
 data:
-  HOST: "postgres-service"
+  HOST: "mint-postgres-service"
   USER: "odoo"
   DB_PORT: "5432"
   odoo.conf: |
     [options]
-    addons_path = /opt/odoo/src/odoo/addons,/opt/odoo/custom-addons
-    data_dir = /opt/odoo/data
+    addons_path = /opt/odoo/addons,/mnt/extra-addons
+    data_dir = /var/lib/odoo
     xmlrpc_port = 8069
     workers = 0
     max_cron_threads = 1
@@ -131,7 +137,7 @@ data:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: postgres-pv
+  name: mint-postgres-pv
   labels:
     type: local
 spec:
@@ -142,15 +148,15 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: "/data/postgres"
+    path: "/data/mint-postgres"
 
 ---
 # PostgreSQL Persistent Volume Claim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-pvc
-  namespace: odoo
+  name: mint-postgres-pvc
+  namespace: mint-odoo
 spec:
   accessModes:
     - ReadWriteOnce
@@ -164,7 +170,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: odoo-data-pv
+  name: mint-odoo-data-pv
   labels:
     type: local
 spec:
@@ -175,15 +181,15 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: "/data/odoo"
+    path: "/data/mint-odoo"
 
 ---
 # Odoo Data Persistent Volume Claim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: odoo-data-pvc
-  namespace: odoo
+  name: mint-odoo-data-pvc
+  namespace: mint-odoo
 spec:
   storageClassName: nfs-csi
   accessModes:
@@ -198,8 +204,8 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: postgres-sa
-  namespace: odoo
+  name: mint-postgres-sa
+  namespace: mint-odoo
 automountServiceAccountToken: false
 
 ---
@@ -207,8 +213,8 @@ automountServiceAccountToken: false
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: odoo-sa
-  namespace: odoo
+  name: mint-odoo-sa
+  namespace: mint-odoo
 automountServiceAccountToken: false
 
 ---
@@ -216,23 +222,23 @@ automountServiceAccountToken: false
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
-  namespace: odoo
+  name: mint-postgres
+  namespace: mint-odoo
   labels:
-    app: postgres
+    app: mint-postgres
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: postgres
+      app: mint-postgres
   template:
     metadata:
       labels:
-        app: postgres
+        app: mint-postgres
     spec:
-      serviceAccountName: postgres-sa
+      serviceAccountName: mint-postgres-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -341,7 +347,7 @@ spec:
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:
-          claimName: postgres-pvc
+          claimName: mint-postgres-pvc
       - name: tmp-volume
         emptyDir: {}
       - name: run-volume
@@ -352,10 +358,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-service
-  namespace: odoo
+  name: mint-postgres-service
+  namespace: mint-odoo
   labels:
-    app: postgres
+    app: mint-postgres
 spec:
   ports:
   - port: 5432
@@ -363,7 +369,7 @@ spec:
     protocol: TCP
     name: postgres
   selector:
-    app: postgres
+    app: mint-postgres
   type: ClusterIP
 
 ---
@@ -371,25 +377,22 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: odoo
-  namespace: odoo
+  name: mint-odoo
+  namespace: mint-odoo
   labels:
-    app: odoo
+    app: mint-odoo
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: odoo
+      app: mint-odoo
   template:
     metadata:
       labels:
-        app: odoo
+        app: mint-odoo
     spec:
-      serviceAccountName: odoo-sa
+      serviceAccountName: mint-odoo-sa
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
         fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
@@ -407,7 +410,7 @@ spec:
         - sh
         - -c
         - |
-          until pg_isready -h postgres-service -U odoo; do
+          until pg_isready -h mint-postgres-service -U odoo; do
             echo "Waiting for PostgreSQL to be ready..."
             sleep 2
           done
@@ -426,14 +429,9 @@ spec:
             memory: "256Mi"
       containers:
       - name: odoo
-        image: ghcr.io/brandli/ocb:multi-stage
+        image: mintsystem/odoo:18.0
         imagePullPolicy: Always
-        command: ["/opt/odoo/docker-entrypoint.sh"]
-        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf", "--without-demo=all"]
         securityContext:
-          runAsNonRoot: true
-          runAsUser: 999
-          runAsGroup: 999
           readOnlyRootFilesystem: false
           allowPrivilegeEscalation: false
           capabilities:
@@ -445,42 +443,39 @@ spec:
         - containerPort: 8069
           name: odoo-web
         env:
-        - name: DB_HOST
+        - name: PGHOST
           valueFrom:
             configMapKeyRef:
               name: odoo-config
               key: HOST
-        - name: DB_USER
+        - name: PGUSER
           valueFrom:
             configMapKeyRef:
               name: odoo-config
               key: USER
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: postgres-password
-        - name: DB_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: odoo-config
-              key: DB_PORT
-        - name: ODOO_DB
-          value: "odoo"
-        - name: DB_NAME
-          value: "odoo"
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
               name: postgres-credentials
               key: postgres-password
-        - name: ODOO_RC
-          value: "/etc/odoo/odoo.conf"
+        - name: PGPORT
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-config
+              key: DB_PORT
+        - name: ODOO_DATABASE
+          value: "odoo"
+        - name: ODOO_INIT_LOGIN
+          value: "admin"
+        - name: ODOO_INIT_PASSWORD
+          value: "admin"
+        - name: ODOO_INIT_ADDONS
+          value: "base"
         volumeMounts:
         - name: odoo-data
-          mountPath: /opt/odoo/data
+          mountPath: /var/lib/odoo
         - name: extra-addons
-          mountPath: /opt/odoo/custom-addons
+          mountPath: /mnt/extra-addons
         - name: odoo-config-file
           mountPath: /etc/odoo
         - name: tmp-volume
@@ -509,7 +504,7 @@ spec:
       volumes:
       - name: odoo-data
         persistentVolumeClaim:
-          claimName: odoo-data-pvc
+          claimName: mint-odoo-data-pvc
       - name: extra-addons
         hostPath:
           path: /home/christian/develop/civitask/odoo-modules
@@ -525,32 +520,32 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: odoo-service
-  namespace: odoo
+  name: mint-odoo-service
+  namespace: mint-odoo
   labels:
-    app: odoo
+    app: mint-odoo
 spec:
   type: NodePort
   ports:
   - port: 8069
     targetPort: 8069
-    nodePort: 30069
+    nodePort: 30070
     protocol: TCP
     name: odoo-web
   selector:
-    app: odoo
+    app: mint-odoo
 
 ---
 # Network Policy for Security
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: odoo-network-policy
-  namespace: odoo
+  name: mint-odoo-network-policy
+  namespace: mint-odoo
 spec:
   podSelector:
     matchLabels:
-      app: odoo
+      app: mint-odoo
   policyTypes:
   - Ingress
   - Egress
@@ -563,7 +558,7 @@ spec:
   - to:
     - podSelector:
         matchLabels:
-          app: postgres
+          app: mint-postgres
     ports:
     - protocol: TCP
       port: 5432
@@ -579,8 +574,8 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: odoo-quota
-  namespace: odoo
+  name: mint-odoo-quota
+  namespace: mint-odoo
 spec:
   hard:
     requests.cpu: "4"
