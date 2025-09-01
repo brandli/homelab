@@ -69,9 +69,9 @@ metadata:
   name: odoo
   labels:
     name: odoo
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
 
 ---
 # PostgreSQL Secret
@@ -193,39 +193,6 @@ spec:
       storage: 10Gi
 
 ---
-# Odoo Extra Addons Persistent Volume
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: odoo-addons-pv
-  labels:
-    type: local
-spec:
-  storageClassName: microk8s-hostpath
-  capacity:
-    storage: 2Gi
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: "/home/christian/develop/civitask/odoo-modules"
-
----
-# Odoo Extra Addons Persistent Volume Claim
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: odoo-addons-pvc
-  namespace: odoo
-spec:
-  storageClassName: microk8s-hostpath
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 2Gi
-  volumeName: odoo-addons-pv
-
 ---
 # PostgreSQL Service Account
 apiVersion: v1
@@ -462,7 +429,7 @@ spec:
         image: ghcr.io/brandli/ocb:multi-stage
         imagePullPolicy: Always
         command: ["/opt/odoo/docker-entrypoint.sh"]
-        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf"]
+        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf", "--without-demo=all"]
         securityContext:
           runAsNonRoot: true
           runAsUser: 999
@@ -507,6 +474,8 @@ spec:
             secretKeyRef:
               name: postgres-credentials
               key: postgres-password
+        - name: ODOO_RC
+          value: "/etc/odoo/odoo.conf"
         volumeMounts:
         - name: odoo-data
           mountPath: /opt/odoo/data
@@ -542,8 +511,9 @@ spec:
         persistentVolumeClaim:
           claimName: odoo-data-pvc
       - name: extra-addons
-        persistentVolumeClaim:
-          claimName: odoo-addons-pvc
+        hostPath:
+          path: /home/christian/develop/civitask/odoo-modules
+          type: Directory
       - name: odoo-config-file
         configMap:
           name: odoo-config
