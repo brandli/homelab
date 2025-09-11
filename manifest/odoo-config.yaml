@@ -429,7 +429,7 @@ spec:
         image: ghcr.io/brandli/ocb:multi-stage
         imagePullPolicy: Always
         command: ["/opt/odoo/docker-entrypoint.sh"]
-        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-i", "base", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf", "--without-demo=all"]
+        args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf", "--without-demo=all", "-u", "all"]
         securityContext:
           runAsNonRoot: true
           runAsUser: 999
@@ -512,7 +512,7 @@ spec:
           claimName: odoo-data-pvc
       - name: extra-addons
         hostPath:
-          path: /home/christian/develop/civitask/odoo-modules
+          path: /home/christian/develop/odoo-modules
           type: Directory
       - name: odoo-config-file
         configMap:
