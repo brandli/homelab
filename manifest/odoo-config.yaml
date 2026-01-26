@@ -22,7 +22,7 @@
 #    # drwxr-xr-x 2 999 docker 4096 ... postgres/
 #    # drwxr-xr-x 2 999 docker 4096 ... odoo/
 #
-# Note: Custom OCB Image (ghcr.io/brandli/ocb:multi-stage)
+# Note: Custom OCB Image (ghcr.io/gentian-org/ocb:latest)
 # -------------------------------------------------------
 # This deployment now uses a custom OCB (Odoo Community Backports) image
 # built from the /setups repository. The image includes:
@@ -426,7 +426,7 @@ spec:
             memory: "256Mi"
       containers:
       - name: odoo
-        image: ghcr.io/brandli/ocb:multi-stage
+        image: ghcr.io/gentian-org/ocb:latest
         imagePullPolicy: Always
         command: ["/opt/odoo/docker-entrypoint.sh"]
         args: ["python3", "/opt/odoo/src/odoo/odoo-bin", "-d", "odoo", "--db_host=postgres-service", "--db_port=5432", "--db_user=odoo", "--config=/etc/odoo/odoo.conf", "--without-demo=all"]
