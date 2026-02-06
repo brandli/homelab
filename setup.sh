@@ -5,7 +5,7 @@ kubectl apply -k .
 kubectl patch clusterpolicies.nvidia.com/cluster-policy     -n gpu-operator-resources --type merge     -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config", "default": "any"}}}}'
 
 #setup ComfyUI
-helm install jupyterhub comfyui-onprem-k8s/charts/jupyterhub --namespace comfyui
+helm install jupyterhub comfyui-onprem-k8s/charts/jupyterhub --namespace comfyui --set ingress.enabled=false
 
 #setup MLflow
 helm repo add mlops-for-all https://mlops-for-all.github.io/helm-charts
